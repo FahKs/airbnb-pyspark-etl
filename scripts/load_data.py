@@ -1,56 +1,75 @@
 import os
 import sys
+import datetime
 
-# 1. ตั้งค่า Path ให้ชัดเจน
-os.environ["JAVA_HOME"] = r"C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot"
-os.environ["PATH"] = os.environ["JAVA_HOME"] + r"\bin;" + os.environ["PATH"]
-
+# ล้างค่าเก่าที่อาจค้างอยู่ในเครื่องออกให้หมด
 if "SPARK_HOME" in os.environ: del os.environ["SPARK_HOME"]
+if "PYSPARK_PYTHON" in os.environ: del os.environ["PYSPARK_PYTHON"]
 
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+def log_status(message):
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now}] 🚀 {message}")
+
+def clean_airbnb_data(df):
+    """ฟังก์ชันจัดการข้อมูลให้สะอาด (หนูเอา Logic ที่แม่เคยสอนมาใส่ตรงนี้ได้เลย)"""
+    # ตัวอย่าง: เติมค่าว่างเบื้องต้น
+    df_cleaned = df.fillna({'name': 'Unknown', 'price': 0})
+    return df_cleaned
 
 def start_spark():
     try:
+        # ใช้ Relative Path สำหรับไฟล์ JAR (ถ้าอยู่ในโฟลเดอร์ jars ในโปรเจกต์)
+        jar_path = os.path.abspath("./jars/postgresql-42.7.8.jar")
+        
         spark = SparkSession.builder \
             .master("local") \
-            .appName("Airbnb_Final_Test") \
+            .appName("Airbnb_Pro_Pipeline") \
             .config("spark.driver.host", "127.0.0.1") \
             .config("spark.driver.bindAddress", "127.0.0.1") \
-            .config("spark.jars", r"C:\Data Engineer_project\jars\postgresql-42.7.8.jar") \
+            .config("spark.jars", jar_path) \
             .getOrCreate()
         return spark
     except Exception as e:
-        print(f"💥 สร้าง Spark ไม่สำเร็จเพราะ: {e}")
+        log_status(f"💥 สร้าง Spark ไม่สำเร็จเพราะ: {e}")
         return None
 
-# --- ส่วนของการรันงาน ---
+# --- เริ่มรันงาน ---
 spark = start_spark()
 
 if spark:
-    print("✨ หัวหน้าคนงาน Spark ตื่นแล้วจ้า!")
+    log_status("หัวหน้าคนงาน Spark พร้อมลุยงานแบบโปรแล้ว!")
     files = ['listings', 'neighbourhoods', 'reviews']
     
-    for file_name in files:
-        path = f"C:/Data Engineer_project/dataset/raw/{file_name}.csv"
-        print(f"🔄 กำลังอ่าน: {file_name}")
-        
-        df = spark.read.csv(path, header=True, inferSchema=True)
-        df.show(3, vertical=True)
-        
-        # --- 📥 ส่วนโหลดลง Postgres (ต้องเคาะเข้ามาให้ตรงกับ df.show) ---
-        print(f"📥 กำลังโหลด {file_name} ลง Postgres...")
-        
-        db_url = "jdbc:postgresql://localhost:5432/airbnb_raw"
-        db_properties = {
-            "user": "admin",
-            "password": "password123", 
-            "driver": "org.postgresql.Driver"
-        }
+    # ข้อมูลการเชื่อมต่อฐานข้อมูล
+    db_url = "jdbc:postgresql://localhost:5432/airbnb_raw"
+    db_properties = {
+        "user": "admin",
+        "password": "password123", 
+        "driver": "org.postgresql.Driver"
+    }
 
-        # สั่งเขียนลง DB
-        df.write.jdbc(url=db_url, table=file_name, mode="overwrite", properties=db_properties)
-        print(f"✅ {file_name} เข้าบ้านเรียบร้อย!")
-        # ---------------------------------------------------------
+    for file_name in files:
+        # ใช้ Relative Path (./) จะทำให้รันได้ทุกเครื่อง
+        path = f"./dataset/raw/{file_name}.csv"
+        log_status(f"กำลังอ่านไฟล์: {file_name}")
+        
+        try:
+            df = spark.read.csv(path, header=True, inferSchema=True)
+            
+            # ถ้าเป็นไฟล์ listings ให้ผ่านการคลีนก่อน
+            if file_name == 'listings':
+                log_status("✨ กำลังทำความสะอาดข้อมูล Listings...")
+                df = clean_airbnb_data(df)
+            
+            log_status(f"📥 กำลังส่ง {file_name} เข้าฐานข้อมูล Postgres...")
+            df.write.jdbc(url=db_url, table=file_name, mode="overwrite", properties=db_properties)
+            log_status(f"✅ {file_name} โหลดเสร็จเรียบร้อย!")
+            
+        except Exception as e:
+            log_status(f"❌ เกิดข้อผิดพลาดกับไฟล์ {file_name}: {e}")
 
 else:
-    print("❌ ไปต่อไม่ได้ เพราะ Spark ไม่ตื่นลูก")
+    log_status("Spark ไม่ทำงาน ตรวจสอบ JAVA_HOME อีกครั้งนะลูก")
