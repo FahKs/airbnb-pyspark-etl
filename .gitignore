@@ -1,4 +1,5 @@
 postgres_data/
+pgadmin_data/
 .venv/
 __pycache__/
 *.csv
