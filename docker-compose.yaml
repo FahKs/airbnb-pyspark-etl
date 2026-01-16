@@ -1,10 +1,11 @@
 version: '3.8'
 
 services:
-  # ตู้เก็บข้อมูล (Database)
+  # Database Service: Primary Data Store
   db:
     image: postgres:15
     container_name: airbnb_db
+    restart: always  
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password123
@@ -13,18 +14,30 @@ services:
       - "5432:5432"
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
+    networks:
+      - airbnb_network
 
-  # หน้าจอสำหรับส่องข้อมูล (Database Management Tool)
+  # GUI Tool: Database Administration
   pgadmin:
     image: dpage/pgadmin4
     container_name: airbnb_pgadmin
-    user: root  # เพิ่มอันนี้เพื่อให้มีสิทธิ์เขียนไฟล์ลงเครื่องหนูได้
+    restart: always
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: password123
+      PGADMIN_CONFIG_SERVER_MODE: 'False' 
     ports:
       - "8080:80"
     volumes:
-      - ./pgadmin_data:/var/lib/pgadmin  
+      - pgadmin_storage:/var/lib/pgadmin  .
     depends_on:
       - db
+    networks:
+      - airbnb_network
+
+networks:
+  airbnb_network:  
+    driver: bridge
+
+volumes:
+  pgadmin_storage:
